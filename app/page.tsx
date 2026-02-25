@@ -1,8 +1,19 @@
 'use client'
 
 import React, { useState, useMemo, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { callAIAgent } from '@/lib/aiAgent'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+
+// Import ClinicMap dynamically with no SSR to avoid Leaflet window errors
+const ClinicMap = dynamic(() => import('@/components/ClinicMap').then(mod => mod.ClinicMap), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full flex items-center justify-center bg-muted/20">
+      <p className="text-sm text-muted-foreground">Loading map...</p>
+    </div>
+  ),
+})
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -96,13 +107,16 @@ interface StatusMessage {
   text: string
 }
 
-// ─── OSWT Inventory Data (from McKesson OSWT SILO START + Master Supply Order List) ──
+// ─── REAL OMS CLINIC LOCATIONS (David Ashley Oral Surgery Practice) ──
 const SAMPLE_CLINICS: Clinic[] = [
-  { id: 'clinic-001', name: 'Desert Springs Clinic', address: '1420 E. Main St, Tucson, AZ', state: 'AZ', lat: 32.22, lng: -110.97 },
-  { id: 'clinic-002', name: 'Red Rock Surgery Center', address: '780 Canyon Rd, Sedona, AZ', state: 'AZ', lat: 34.87, lng: -111.76 },
-  { id: 'clinic-003', name: 'High Plains Oral Surgery', address: '345 Prairie Ave, Amarillo, TX', state: 'TX', lat: 35.22, lng: -101.83 },
-  { id: 'clinic-004', name: 'Mesquite Valley Dental', address: '2100 S. Mesquite Ln, Las Cruces, NM', state: 'NM', lat: 32.34, lng: -106.76 },
-  { id: 'clinic-005', name: 'Pecos River Clinic', address: '890 River Rd, Carlsbad, NM', state: 'NM', lat: 32.42, lng: -104.23 },
+  { id: 'clinic-001', name: 'Monroe Clinic', address: 'Monroe, LA', state: 'LA', lat: 32.5093, lng: -92.1193 },
+  { id: 'clinic-002', name: 'Lafayette Clinic', address: 'Lafayette, LA', state: 'LA', lat: 30.2241, lng: -92.0198 },
+  { id: 'clinic-003', name: 'Lake Charles Clinic', address: 'Lake Charles, LA', state: 'LA', lat: 30.2266, lng: -93.2174 },
+  { id: 'clinic-004', name: 'Cedar Park Clinic', address: 'Cedar Park, TX', state: 'TX', lat: 30.5052, lng: -97.8203 },
+  { id: 'clinic-005', name: 'Arlington Clinic', address: 'Arlington, TX', state: 'TX', lat: 32.7357, lng: -97.1081 },
+  { id: 'clinic-006', name: 'Trussville Clinic', address: 'Trussville, AL', state: 'AL', lat: 33.6198, lng: -86.6089 },
+  { id: 'clinic-007', name: 'Dacula Clinic', address: 'Dacula, GA', state: 'GA', lat: 33.9879, lng: -83.8974 },
+  { id: 'clinic-008', name: 'Killeen Clinic', address: 'Killeen, TX', state: 'TX', lat: 31.1171, lng: -97.7278 },
 ]
 
 const SAMPLE_PRODUCTS: Product[] = [
@@ -127,31 +141,32 @@ const SAMPLE_PRODUCTS: Product[] = [
 ]
 
 const SAMPLE_INVENTORY: InventoryItem[] = [
-  // Desert Springs Clinic — well stocked mostly, low on anesthetic
-  { id: 'inv-001', product_id: 'prod-001', product_name: 'McKesson Exam Gloves (Nitrile, L)', sku: 'S636GX', clinic_id: 'clinic-001', clinic_name: 'Desert Springs Clinic', current_count: 32, min_threshold: 10, status: 'green', last_updated: '2026-02-20T08:30:00Z' },
-  { id: 'inv-002', product_id: 'prod-003', product_name: 'McKesson Exam Table Paper 21"x225\'', sku: '58-204', clinic_id: 'clinic-001', clinic_name: 'Desert Springs Clinic', current_count: 18, min_threshold: 8, status: 'green', last_updated: '2026-02-20T08:30:00Z' },
-  { id: 'inv-003', product_id: 'prod-009', product_name: 'Dental Anesthetic Cartridges (Lido 2%)', sku: 'DAC-LIDO', clinic_id: 'clinic-001', clinic_name: 'Desert Springs Clinic', current_count: 7, min_threshold: 15, status: 'red', last_updated: '2026-02-19T14:00:00Z' },
-  { id: 'inv-004', product_id: 'prod-010', product_name: 'Suture Kit (Chromic Gut 4-0)', sku: 'SK-CG40', clinic_id: 'clinic-001', clinic_name: 'Desert Springs Clinic', current_count: 14, min_threshold: 8, status: 'green', last_updated: '2026-02-20T08:30:00Z' },
-  { id: 'inv-005', product_id: 'prod-015', product_name: 'Sterile Gauze 4x4 (Pk/200)', sku: 'SG-4X4', clinic_id: 'clinic-001', clinic_name: 'Desert Springs Clinic', current_count: 25, min_threshold: 10, status: 'green', last_updated: '2026-02-20T08:30:00Z' },
-  // Red Rock Surgery Center — low on several, critical bone graft
-  { id: 'inv-006', product_id: 'prod-002', product_name: 'McKesson Exam Gloves (Nitrile, M)', sku: 'SJ496GX', clinic_id: 'clinic-002', clinic_name: 'Red Rock Surgery Center', current_count: 11, min_threshold: 10, status: 'yellow', last_updated: '2026-02-19T16:00:00Z' },
-  { id: 'inv-007', product_id: 'prod-011', product_name: 'Disposable Scalpel Blades (#15C)', sku: 'DSB-15C', clinic_id: 'clinic-002', clinic_name: 'Red Rock Surgery Center', current_count: 3, min_threshold: 12, status: 'red', last_updated: '2026-02-18T10:00:00Z' },
-  { id: 'inv-008', product_id: 'prod-012', product_name: 'Bone Graft Material (0.5cc)', sku: 'BGM-05CC', clinic_id: 'clinic-002', clinic_name: 'Red Rock Surgery Center', current_count: 0, min_threshold: 5, status: 'critical', last_updated: '2026-02-17T09:00:00Z' },
-  { id: 'inv-009', product_id: 'prod-007', product_name: 'C2R Rx Destroyer (Drug Disposal)', sku: 'RX16', clinic_id: 'clinic-002', clinic_name: 'Red Rock Surgery Center', current_count: 6, min_threshold: 4, status: 'green', last_updated: '2026-02-19T16:00:00Z' },
-  // High Plains Oral Surgery — mixed, critical hemostatic
-  { id: 'inv-010', product_id: 'prod-015', product_name: 'Sterile Gauze 4x4 (Pk/200)', sku: 'SG-4X4', clinic_id: 'clinic-003', clinic_name: 'High Plains Oral Surgery', current_count: 9, min_threshold: 10, status: 'yellow', last_updated: '2026-02-20T07:00:00Z' },
-  { id: 'inv-011', product_id: 'prod-013', product_name: 'Irrigation Syringes (12ml Monoject)', sku: 'IS-12ML', clinic_id: 'clinic-003', clinic_name: 'High Plains Oral Surgery', current_count: 4, min_threshold: 15, status: 'red', last_updated: '2026-02-19T11:00:00Z' },
-  { id: 'inv-012', product_id: 'prod-014', product_name: 'Hemostatic Gelatin Sponge (Gelfoam)', sku: 'HGS-GF', clinic_id: 'clinic-003', clinic_name: 'High Plains Oral Surgery', current_count: 0, min_threshold: 6, status: 'critical', last_updated: '2026-02-18T15:00:00Z' },
-  { id: 'inv-013', product_id: 'prod-016', product_name: 'Surgical Aspirator Tips (Yankauer)', sku: 'SAT-YK', clinic_id: 'clinic-003', clinic_name: 'High Plains Oral Surgery', current_count: 22, min_threshold: 10, status: 'green', last_updated: '2026-02-20T07:00:00Z' },
-  // Mesquite Valley Dental — mostly stocked
-  { id: 'inv-014', product_id: 'prod-001', product_name: 'McKesson Exam Gloves (Nitrile, L)', sku: 'S636GX', clinic_id: 'clinic-004', clinic_name: 'Mesquite Valley Dental', current_count: 28, min_threshold: 10, status: 'green', last_updated: '2026-02-20T09:00:00Z' },
-  { id: 'inv-015', product_id: 'prod-009', product_name: 'Dental Anesthetic Cartridges (Lido 2%)', sku: 'DAC-LIDO', clinic_id: 'clinic-004', clinic_name: 'Mesquite Valley Dental', current_count: 22, min_threshold: 15, status: 'green', last_updated: '2026-02-20T09:00:00Z' },
-  { id: 'inv-016', product_id: 'prod-005', product_name: 'Cardinal Exam Gloves (Latex, S)', sku: '8881400033', clinic_id: 'clinic-004', clinic_name: 'Mesquite Valley Dental', current_count: 18, min_threshold: 6, status: 'green', last_updated: '2026-02-20T09:00:00Z' },
-  // Pecos River Clinic — critically low on multiple items
-  { id: 'inv-017', product_id: 'prod-010', product_name: 'Suture Kit (Chromic Gut 4-0)', sku: 'SK-CG40', clinic_id: 'clinic-005', clinic_name: 'Pecos River Clinic', current_count: 2, min_threshold: 8, status: 'red', last_updated: '2026-02-19T13:00:00Z' },
-  { id: 'inv-018', product_id: 'prod-011', product_name: 'Disposable Scalpel Blades (#15C)', sku: 'DSB-15C', clinic_id: 'clinic-005', clinic_name: 'Pecos River Clinic', current_count: 0, min_threshold: 12, status: 'critical', last_updated: '2026-02-17T16:00:00Z' },
-  { id: 'inv-019', product_id: 'prod-012', product_name: 'Bone Graft Material (0.5cc)', sku: 'BGM-05CC', clinic_id: 'clinic-005', clinic_name: 'Pecos River Clinic', current_count: 1, min_threshold: 5, status: 'red', last_updated: '2026-02-18T14:00:00Z' },
-  { id: 'inv-020', product_id: 'prod-008', product_name: 'Graham Medical Exam Table Paper 18"', sku: '43447', clinic_id: 'clinic-005', clinic_name: 'Pecos River Clinic', current_count: 3, min_threshold: 8, status: 'red', last_updated: '2026-02-18T14:00:00Z' },
+  // Monroe Clinic — well stocked mostly, low on anesthetic
+  { id: 'inv-001', product_id: 'prod-001', product_name: 'McKesson Exam Gloves (Nitrile, L)', sku: 'S636GX', clinic_id: 'clinic-001', clinic_name: 'Monroe Clinic', current_count: 32, min_threshold: 10, status: 'green', last_updated: '2026-02-20T08:30:00Z' },
+  { id: 'inv-002', product_id: 'prod-003', product_name: 'McKesson Exam Table Paper 21"x225\'', sku: '58-204', clinic_id: 'clinic-001', clinic_name: 'Monroe Clinic', current_count: 18, min_threshold: 8, status: 'green', last_updated: '2026-02-20T08:30:00Z' },
+  { id: 'inv-003', product_id: 'prod-009', product_name: 'Dental Anesthetic Cartridges (Lido 2%)', sku: 'DAC-LIDO', clinic_id: 'clinic-001', clinic_name: 'Monroe Clinic', current_count: 7, min_threshold: 15, status: 'red', last_updated: '2026-02-19T14:00:00Z' },
+  // Lafayette Clinic — low on several, critical bone graft
+  { id: 'inv-006', product_id: 'prod-002', product_name: 'McKesson Exam Gloves (Nitrile, M)', sku: 'SJ496GX', clinic_id: 'clinic-002', clinic_name: 'Lafayette Clinic', current_count: 11, min_threshold: 10, status: 'yellow', last_updated: '2026-02-19T16:00:00Z' },
+  { id: 'inv-007', product_id: 'prod-011', product_name: 'Disposable Scalpel Blades (#15C)', sku: 'DSB-15C', clinic_id: 'clinic-002', clinic_name: 'Lafayette Clinic', current_count: 3, min_threshold: 12, status: 'red', last_updated: '2026-02-18T10:00:00Z' },
+  { id: 'inv-008', product_id: 'prod-012', product_name: 'Bone Graft Material (0.5cc)', sku: 'BGM-05CC', clinic_id: 'clinic-002', clinic_name: 'Lafayette Clinic', current_count: 0, min_threshold: 5, status: 'critical', last_updated: '2026-02-17T09:00:00Z' },
+  // Lake Charles Clinic — mixed, critical hemostatic
+  { id: 'inv-010', product_id: 'prod-015', product_name: 'Sterile Gauze 4x4 (Pk/200)', sku: 'SG-4X4', clinic_id: 'clinic-003', clinic_name: 'Lake Charles Clinic', current_count: 9, min_threshold: 10, status: 'yellow', last_updated: '2026-02-20T07:00:00Z' },
+  { id: 'inv-011', product_id: 'prod-013', product_name: 'Irrigation Syringes (12ml Monoject)', sku: 'IS-12ML', clinic_id: 'clinic-003', clinic_name: 'Lake Charles Clinic', current_count: 4, min_threshold: 15, status: 'red', last_updated: '2026-02-19T11:00:00Z' },
+  { id: 'inv-012', product_id: 'prod-014', product_name: 'Hemostatic Gelatin Sponge (Gelfoam)', sku: 'HGS-GF', clinic_id: 'clinic-003', clinic_name: 'Lake Charles Clinic', current_count: 0, min_threshold: 6, status: 'critical', last_updated: '2026-02-18T15:00:00Z' },
+  // Cedar Park Clinic — mostly stocked
+  { id: 'inv-014', product_id: 'prod-001', product_name: 'McKesson Exam Gloves (Nitrile, L)', sku: 'S636GX', clinic_id: 'clinic-004', clinic_name: 'Cedar Park Clinic', current_count: 28, min_threshold: 10, status: 'green', last_updated: '2026-02-20T09:00:00Z' },
+  { id: 'inv-015', product_id: 'prod-009', product_name: 'Dental Anesthetic Cartridges (Lido 2%)', sku: 'DAC-LIDO', clinic_id: 'clinic-004', clinic_name: 'Cedar Park Clinic', current_count: 22, min_threshold: 15, status: 'green', last_updated: '2026-02-20T09:00:00Z' },
+  // Arlington Clinic — critically low on multiple items
+  { id: 'inv-017', product_id: 'prod-010', product_name: 'Suture Kit (Chromic Gut 4-0)', sku: 'SK-CG40', clinic_id: 'clinic-005', clinic_name: 'Arlington Clinic', current_count: 2, min_threshold: 8, status: 'red', last_updated: '2026-02-19T13:00:00Z' },
+  { id: 'inv-018', product_id: 'prod-011', product_name: 'Disposable Scalpel Blades (#15C)', sku: 'DSB-15C', clinic_id: 'clinic-005', clinic_name: 'Arlington Clinic', current_count: 0, min_threshold: 12, status: 'critical', last_updated: '2026-02-17T16:00:00Z' },
+  // Trussville Clinic
+  { id: 'inv-021', product_id: 'prod-001', product_name: 'McKesson Exam Gloves (Nitrile, L)', sku: 'S636GX', clinic_id: 'clinic-006', clinic_name: 'Trussville Clinic', current_count: 15, min_threshold: 10, status: 'green', last_updated: '2026-02-20T09:00:00Z' },
+  { id: 'inv-022', product_id: 'prod-015', product_name: 'Sterile Gauze 4x4 (Pk/200)', sku: 'SG-4X4', clinic_id: 'clinic-006', clinic_name: 'Trussville Clinic', current_count: 8, min_threshold: 10, status: 'yellow', last_updated: '2026-02-20T09:00:00Z' },
+  // Dacula Clinic
+  { id: 'inv-023', product_id: 'prod-002', product_name: 'McKesson Exam Gloves (Nitrile, M)', sku: 'SJ496GX', clinic_id: 'clinic-007', clinic_name: 'Dacula Clinic', current_count: 25, min_threshold: 10, status: 'green', last_updated: '2026-02-20T09:00:00Z' },
+  // Killeen Clinic
+  { id: 'inv-024', product_id: 'prod-009', product_name: 'Dental Anesthetic Cartridges (Lido 2%)', sku: 'DAC-LIDO', clinic_id: 'clinic-008', clinic_name: 'Killeen Clinic', current_count: 5, min_threshold: 15, status: 'red', last_updated: '2026-02-20T09:00:00Z' },
+  { id: 'inv-025', product_id: 'prod-012', product_name: 'Bone Graft Material (0.5cc)', sku: 'BGM-05CC', clinic_id: 'clinic-008', clinic_name: 'Killeen Clinic', current_count: 2, min_threshold: 5, status: 'yellow', last_updated: '2026-02-20T09:00:00Z' },
 ]
 
 // ─── OSWT Reference Files (uploaded assets for agent context) ──
@@ -278,13 +293,13 @@ function Sidebar({ activeScreen, setActiveScreen, collapsed, setCollapsed }: {
       <div className="p-4 flex items-center justify-between border-b border-border">
         {!collapsed && (
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-[hsl(36,60%,31%)] flex items-center justify-center">
-              <FiCrosshair className="w-4 h-4 text-[hsl(35,20%,95%)]" />
+            <div className="w-8 h-8 rounded-lg bg-[#90EE90]/20 flex items-center justify-center">
+              <FiCrosshair className="w-4 h-4 text-[#90EE90]" />
             </div>
-            <span className="font-serif font-bold text-lg text-foreground tracking-tight">XTrackedOS</span>
+            <span className="font-serif font-bold text-lg text-white tracking-tight">XTrackedOS</span>
           </div>
         )}
-        <button onClick={() => setCollapsed(!collapsed)} className="p-1.5 rounded-md hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground">
+        <button onClick={() => setCollapsed(!collapsed)} className="p-1.5 rounded-md hover:bg-white/10 active:bg-white/20 transition-all text-[#90EE90] hover:text-[#98FB98]">
           <FiMenu className="w-4 h-4" />
         </button>
       </div>
@@ -296,18 +311,26 @@ function Sidebar({ activeScreen, setActiveScreen, collapsed, setCollapsed }: {
             <button
               key={item.id}
               onClick={() => setActiveScreen(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${isActive ? 'bg-[hsl(36,60%,31%)]/20 text-[hsl(36,60%,50%)] border border-[hsl(36,60%,31%)]/30' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'}`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${isActive ? 'bg-[#90EE90]/20 text-[#90EE90] border border-[#90EE90]/40' : 'text-white/70 hover:text-white hover:bg-white/10 active:bg-white/20'}`}
             >
-              <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-[hsl(36,60%,50%)]' : ''}`} />
+              <Icon className={`w-4 h-4 flex-shrink-0 text-[#90EE90]`} />
               {!collapsed && <span>{item.label}</span>}
             </button>
           )
         })}
       </nav>
       {!collapsed && (
-        <div className="p-4 border-t border-border">
-          <div className="text-xs text-muted-foreground">Inventory Manager</div>
-          <div className="text-xs text-muted-foreground mt-1">v2.1.0</div>
+        <div className="border-t border-border">
+          <div className="p-4">
+            <div className="text-xs text-white/50">Inventory Manager</div>
+            <div className="text-xs text-white/50 mt-1">v2.1.0</div>
+          </div>
+          <div className="px-4 pb-4">
+            <button className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-red-900/20 hover:bg-red-900/30 active:bg-red-900/40 text-red-400 hover:text-red-300 border border-red-800/30 hover:border-red-700/50 transition-all text-xs font-medium">
+              <FiX className="w-3.5 h-3.5" />
+              Disconnect
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -320,11 +343,11 @@ function HeaderBar({ activeScreen, notificationCount }: { activeScreen: string; 
   return (
     <div className="h-14 border-b border-border bg-card flex items-center justify-between px-6 sticky top-0 z-30">
       <div className="flex items-center gap-3">
-        <h1 className="font-serif text-lg font-semibold text-foreground">{title}</h1>
-        <span className="text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">Inventory Manager</span>
+        <h1 className="font-serif text-lg font-semibold text-white">{title}</h1>
+        <span className="text-xs text-white/70 bg-secondary px-2 py-0.5 rounded-full">Inventory Manager</span>
       </div>
       <div className="relative">
-        <button className="p-2 rounded-lg hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground">
+        <button className="p-2 rounded-lg hover:bg-white/10 active:bg-white/20 transition-all text-[#90EE90] hover:text-[#98FB98]">
           <FiBell className="w-5 h-5" />
         </button>
         {notificationCount > 0 && (
@@ -452,64 +475,24 @@ function DashboardScreen({
 
   return (
     <div className="space-y-6">
-      {/* Map Card */}
+      {/* Interactive Map Card */}
       <Card className="bg-card border-border overflow-hidden">
-        <div className="relative h-80 bg-[hsl(20,30%,6%)]">
-          {/* Grid background */}
-          <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'linear-gradient(hsl(35,20%,30%) 1px, transparent 1px), linear-gradient(90deg, hsl(35,20%,30%) 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
-          {/* Map label */}
-          <div className="absolute top-4 left-4 flex items-center gap-2">
-            <FiMapPin className="w-4 h-4 text-muted-foreground" />
-            <span className="text-xs text-muted-foreground font-medium">Regional Clinic Map</span>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <FiMapPin className="w-4 h-4 text-[#90EE90]" />
+            <CardTitle className="text-sm font-medium text-white">Regional Clinic Map - Live Locations</CardTitle>
           </div>
-          {/* Floating Controls */}
-          <div className="absolute top-4 right-4 bg-card/90 backdrop-blur-sm border border-border rounded-lg p-3 space-y-3 z-10">
-            <div className="flex items-center gap-2">
-              <Switch checked={mapAlerts} onCheckedChange={setMapAlerts} />
-              <span className="text-xs text-foreground font-medium">Map Alerts</span>
-            </div>
-            <Separator />
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="w-2.5 h-2.5 rounded-full bg-green-500" />Stocked
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />Low
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-500" />Order Needed
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-blink-critical" />Critical
-              </div>
-            </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="h-96">
+            <ClinicMap
+              clinics={clinics}
+              inventory={inventory}
+              onClinicClick={setSelectedClinic}
+              selectedClinic={selectedClinic}
+            />
           </div>
-          {/* Clinic Dots */}
-          {clinics.map(clinic => {
-            const pos = clinicPositions[clinic.id] ?? { left: '50%', top: '50%' }
-            const worstStatus = getClinicWorstStatus(clinic.id, inventory)
-            const colorClass = mapAlerts ? (statusColors[worstStatus] ?? 'bg-green-500') : 'bg-green-500'
-            return (
-              <button
-                key={clinic.id}
-                onClick={() => setSelectedClinic(clinic.id)}
-                className="absolute group"
-                style={{ left: pos.left, top: pos.top, transform: 'translate(-50%, -50%)' }}
-              >
-                <div className={`w-4 h-4 rounded-full ${colorClass} shadow-lg ring-2 ring-black/30 transition-transform hover:scale-150`} />
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-card border border-border rounded-md px-2 py-1 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
-                  <span className="text-xs font-medium text-foreground">{clinic.name}</span>
-                  <br />
-                  <span className="text-[10px] text-muted-foreground">{clinic.state}</span>
-                </div>
-              </button>
-            )
-          })}
-          {/* State Labels */}
-          <div className="absolute text-[10px] text-muted-foreground/40 font-bold tracking-widest" style={{ left: '22%', top: '48%' }}>AZ</div>
-          <div className="absolute text-[10px] text-muted-foreground/40 font-bold tracking-widest" style={{ left: '50%', top: '45%' }}>NM</div>
-          <div className="absolute text-[10px] text-muted-foreground/40 font-bold tracking-widest" style={{ left: '72%', top: '35%' }}>TX</div>
-        </div>
+        </CardContent>
       </Card>
 
       {/* Stats Row */}
@@ -518,24 +501,11 @@ function DashboardScreen({
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-muted-foreground">Total Clinics</p>
-                <p className="text-2xl font-bold text-foreground font-serif">{totalClinics}</p>
+                <p className="text-xs text-white/60">Total Clinics</p>
+                <p className="text-2xl font-bold text-white font-serif">{totalClinics}</p>
               </div>
-              <div className="w-10 h-10 rounded-lg bg-[hsl(36,60%,31%)]/20 flex items-center justify-center">
-                <FiMapPin className="w-5 h-5 text-[hsl(36,60%,50%)]" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-card border-border">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground">Below Threshold</p>
-                <p className="text-2xl font-bold text-red-400 font-serif">{belowThreshold}</p>
-              </div>
-              <div className="w-10 h-10 rounded-lg bg-red-900/30 flex items-center justify-center">
-                <FiAlertTriangle className="w-5 h-5 text-red-400" />
+              <div className="w-10 h-10 rounded-lg bg-[#90EE90]/10 border border-[#90EE90]/25 flex items-center justify-center">
+                <FiMapPin className="w-5 h-5 text-[#90EE90]" />
               </div>
             </div>
           </CardContent>
@@ -544,11 +514,11 @@ function DashboardScreen({
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-muted-foreground">Critical Items</p>
-                <p className="text-2xl font-bold text-red-300 font-serif">{pendingCritical}</p>
+                <p className="text-xs text-white/60">Below Threshold</p>
+                <p className="text-2xl font-bold text-white font-serif">{belowThreshold}</p>
               </div>
-              <div className="w-10 h-10 rounded-lg bg-red-950/30 flex items-center justify-center">
-                <FiPackage className="w-5 h-5 text-red-300" />
+              <div className="w-10 h-10 rounded-lg bg-[#90EE90]/10 border border-[#90EE90]/25 flex items-center justify-center">
+                <FiAlertTriangle className="w-5 h-5 text-[#90EE90]" />
               </div>
             </div>
           </CardContent>
@@ -557,11 +527,24 @@ function DashboardScreen({
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-muted-foreground">Last Scan</p>
-                <p className="text-sm font-medium text-foreground">{formatDate(lastScan)}</p>
+                <p className="text-xs text-white/60">Critical Items</p>
+                <p className="text-2xl font-bold text-white font-serif">{pendingCritical}</p>
               </div>
-              <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center">
-                <FiClock className="w-5 h-5 text-muted-foreground" />
+              <div className="w-10 h-10 rounded-lg bg-[#90EE90]/10 border border-[#90EE90]/25 flex items-center justify-center">
+                <FiPackage className="w-5 h-5 text-[#90EE90]" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-card border-border">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-white/60">Last Scan</p>
+                <p className="text-lg font-semibold text-white font-serif">{formatDate(lastScan)}</p>
+              </div>
+              <div className="w-10 h-10 rounded-lg bg-[#90EE90]/10 border border-[#90EE90]/25 flex items-center justify-center">
+                <FiClock className="w-5 h-5 text-[#90EE90]" />
               </div>
             </div>
           </CardContent>
@@ -570,21 +553,21 @@ function DashboardScreen({
 
       {/* OSWT Data Source Banner */}
       <div className="rounded-lg border border-[hsl(36,60%,31%)]/30 bg-[hsl(36,60%,31%)]/10 p-3 flex items-center gap-3">
-        <div className="w-8 h-8 rounded-md bg-[hsl(36,60%,31%)]/20 flex items-center justify-center flex-shrink-0">
-          <FiPackage className="w-4 h-4 text-[hsl(36,60%,50%)]" />
+        <div className="w-8 h-8 rounded-md bg-[#90EE90]/10 flex items-center justify-center flex-shrink-0">
+          <FiPackage className="w-4 h-4 text-[#90EE90]" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-[hsl(36,60%,50%)]">OSWT Inventory Loaded</p>
-          <p className="text-xs text-muted-foreground mt-0.5 truncate">
+          <p className="text-xs font-medium text-white">OSWT Inventory Loaded</p>
+          <p className="text-xs text-white/60 mt-0.5 truncate">
             Sourced from McKesson SILO START list, OSWT Master Supply Order, and Inventory Checklist ({products.length} products / {inventory.length} tracked items)
           </p>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          <a href={OSWT_ASSETS.inventoryList} target="_blank" rel="noopener noreferrer" className="text-xs text-[hsl(36,60%,50%)] hover:underline">McKesson List</a>
-          <span className="text-muted-foreground text-xs">|</span>
-          <a href={OSWT_ASSETS.masterSupplyOrder} target="_blank" rel="noopener noreferrer" className="text-xs text-[hsl(36,60%,50%)] hover:underline">Master Order</a>
-          <span className="text-muted-foreground text-xs">|</span>
-          <a href={OSWT_ASSETS.checklist} target="_blank" rel="noopener noreferrer" className="text-xs text-[hsl(36,60%,50%)] hover:underline">Checklist</a>
+          <a href={OSWT_ASSETS.inventoryList} target="_blank" rel="noopener noreferrer" className="text-xs text-[#90EE90] hover:text-[#98FB98] hover:underline transition-colors">McKesson List</a>
+          <span className="text-white/40 text-xs">|</span>
+          <a href={OSWT_ASSETS.masterSupplyOrder} target="_blank" rel="noopener noreferrer" className="text-xs text-[#90EE90] hover:text-[#98FB98] hover:underline transition-colors">Master Order</a>
+          <span className="text-white/40 text-xs">|</span>
+          <a href={OSWT_ASSETS.checklist} target="_blank" rel="noopener noreferrer" className="text-xs text-[#90EE90] hover:text-[#98FB98] hover:underline transition-colors">Checklist</a>
         </div>
       </div>
 
@@ -592,13 +575,13 @@ function DashboardScreen({
       <Card className="bg-card border-border">
         <CardContent className="p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
-            <h3 className="font-serif font-semibold text-foreground">Order Intelligence</h3>
-            <p className="text-sm text-muted-foreground mt-1">Analyze current inventory levels across all clinics and generate smart order recommendations.</p>
+            <h3 className="font-serif font-semibold text-white">Order Intelligence</h3>
+            <p className="text-sm text-white/70 mt-1">Analyze current inventory levels across all clinics and generate smart order recommendations.</p>
           </div>
           <Button
             onClick={handleAnalyze}
             disabled={analysisLoading}
-            className="bg-[hsl(36,60%,31%)] hover:bg-[hsl(36,60%,36%)] text-[hsl(35,20%,95%)] px-6 min-w-[200px]"
+            className="bg-[#90EE90]/20 hover:bg-[#90EE90]/30 active:bg-[#90EE90]/40 text-[#90EE90] border border-[#90EE90]/40 hover:border-[#90EE90]/60 px-6 min-w-[200px] transition-all font-medium"
           >
             {analysisLoading ? (
               <><FiLoader className="w-4 h-4 mr-2 animate-spin" />Analyzing...</>
@@ -613,28 +596,28 @@ function DashboardScreen({
       <Sheet open={!!selectedClinic} onOpenChange={(open) => { if (!open) setSelectedClinic(null) }}>
         <SheetContent className="bg-card border-border">
           <SheetHeader>
-            <SheetTitle className="font-serif text-foreground">{selectedClinicData?.name ?? 'Clinic Details'}</SheetTitle>
+            <SheetTitle className="font-serif text-white">{selectedClinicData?.name ?? 'Clinic Details'}</SheetTitle>
           </SheetHeader>
           <div className="mt-4 space-y-4">
             {selectedClinicData && (
-              <div className="text-sm text-muted-foreground">
+              <div className="text-sm text-white/70">
                 <p>{selectedClinicData.address}</p>
               </div>
             )}
             <Separator />
-            <h4 className="text-sm font-semibold text-foreground">Inventory Status</h4>
+            <h4 className="text-sm font-semibold text-white">Inventory Status</h4>
             <ScrollArea className="h-[calc(100vh-220px)]">
               <div className="space-y-2 pr-4">
                 {selectedClinicInventory.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No inventory records for this clinic.</p>
+                  <p className="text-sm text-white/60">No inventory records for this clinic.</p>
                 ) : (
                   selectedClinicInventory.map(item => (
                     <Card key={item.id} className="bg-secondary/50 border-border">
                       <CardContent className="p-3">
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-sm font-medium text-foreground">{item.product_name}</p>
-                            <p className="text-xs text-muted-foreground">{item.sku}</p>
+                            <p className="text-sm font-medium text-white">{item.product_name}</p>
+                            <p className="text-xs text-white/60">{item.sku}</p>
                           </div>
                           {getStatusBadge(item.status)}
                         </div>
